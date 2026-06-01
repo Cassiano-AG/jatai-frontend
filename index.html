@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>A Revoada das Jataís</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        body { margin: 0; padding: 0; background-color: #f4ecd8; overflow: hidden; touch-action: manipulation; }
+        .screen { display: none; width: 100vw; height: 100vh; flex-direction: column; align-items: center; justify-content: center; }
+        .active { display: flex; }
+        
+        /* Telas de Login e Fim */
+        h1 { color: #d35400; text-align: center; }
+        input { padding: 15px; font-size: 18px; border-radius: 8px; border: 2px solid #e67e22; width: 80%; max-width: 300px; margin-bottom: 20px; }
+        button { padding: 15px 30px; font-size: 20px; background-color: #e67e22; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        button:active { transform: translateY(2px); }
+
+        /* Jogo */
+        #game-ui { position: absolute; top: 10px; width: 100%; display: flex; justify-content: space-around; font-size: 24px; font-weight: bold; color: #2c3e50; z-index: 10; pointer-events: none; }
+        #game-area { width: 100%; height: 100%; position: relative; background-color: #aed6f1; }
+        .entity { position: absolute; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; cursor: pointer; animation: popIn 0.2s ease-out; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        
+        .common { width: 60px; height: 60px; background-color: #f1c40f; border: 3px solid #f39c12; }
+        .rare { width: 45px; height: 45px; background-color: #9b59b6; border: 3px solid #8e44ad; }
+        .threat { width: 70px; height: 70px; background-color: #e74c3c; border: 3px solid #c0392b; }
+
+        @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+        
+        /* Leaderboard */
+        #leaderboard-list { list-style: none; padding: 0; width: 80%; max-width: 400px; background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #leaderboard-list li { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; font-size: 18px; }
+        #leaderboard-list li:nth-child(even) { background-color: #f9f9f9; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="screen active">
+        <h1>🐝 A Revoada das Jataís</h1>
+        <p>Colete recursos para a colmeia!</p>
+        <input type="text" id="player-name" placeholder="Digite seu nome..." autocomplete="off" maxlength="15">
+        <button onclick="startGame()">Jogar (30s)</button>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <div id="game-ui">
+            <div>Tempo: <span id="timer">30</span>s</div>
+            <div>Néctar: <span id="score">0</span></div>
+        </div>
+        <div id="game-area"></div>
+    </div>
+
+    <div id="end-screen" class="screen">
+        <h1>Fim de Jogo!</h1>
+        <h2>Sua pontuação: <span id="final-score">0</span></h2>
+        <h3>Top 10 Global</h3>
+        <ul id="leaderboard-list">Carregando...</ul>
+        <button onclick="location.reload()" style="margin-top: 20px;">Tentar Novamente</button>
+    </div>
+
+    <script>
+        // ATENÇÃO: Substitua pela Route do Backend no OpenShift após o deploy
+        const API_URL = "http://backend-route-aqui.apps.cluster.com"; 
+        
+        let score = 0;
+        let timeLeft = 30;
+        let gameInterval;
+        let spawnInterval;
+        let playerName = "";
+
+        const gameArea = document.getElementById('game-area');
+
+        function startGame() {
+            const nameInput = document.getElementById('player-name').value.trim();
+            if (!nameInput) return alert("Por favor, insira um nome!");
+            playerName = nameInput;
+
+            document.getElementById('login-screen').classList.remove('active');
+            document.getElementById('game-screen').classList.add('active');
+
+            gameInterval = setInterval(updateTimer, 1000);
+            spawnInterval = setInterval(spawnEntity, 600); // Nasce algo a cada 600ms
+        }
+
+        function updateTimer() {
+            timeLeft--;
+            document.getElementById('timer').innerText = timeLeft;
+            if (timeLeft <= 0) endGame();
+        }
+
+        function spawnEntity() {
+            const entity = document.createElement('div');
+            entity.classList.add('entity');
+            
+            // Lógica de probabilidade
+            const rand = Math.random();
+            let type, points, duration, icon;
+
+            if (rand < 0.60) { // 60% Flores Comuns
+                type = 'common'; points = 10; duration = 3000; icon = '🌼';
+            } else if (rand < 0.85) { // 25% Ameaças (Aranhas)
+                type = 'threat'; points = -30; duration = 2000; icon = '🕷️';
+            } else { // 15% Flores Raras
+                type = 'rare'; points = 50; duration = 1000; icon = '🌸';
+            }
+
+            entity.classList.add(type);
+            entity.innerText = icon;
+
+            // Posição Aleatória (garantindo que fique dentro da tela)
+            const x = Math.random() * (window.innerWidth - 80);
+            const y = Math.random() * (window.innerHeight - 150) + 50; // Respeita a UI superior
+            entity.style.left = `${x}px`;
+            entity.style.top = `${y}px`;
+
+            // Interação (Mobile friendly)
+            entity.addEventListener('touchstart', (e) => { e.preventDefault(); collect(entity, points); });
+            entity.addEventListener('mousedown', () => collect(entity, points));
+
+            gameArea.appendChild(entity);
+
+            // Remove o elemento após o tempo de vida dele se não for clicado
+            setTimeout(() => {
+                if (gameArea.contains(entity)) gameArea.removeChild(entity);
+            }, duration);
+        }
+
+        function collect(element, points) {
+            score += points;
+            // Impede score negativo
+            if (score < 0) score = 0; 
+            document.getElementById('score').innerText = score;
+            element.remove();
+        }
+
+        async function endGame() {
+            clearInterval(gameInterval);
+            clearInterval(spawnInterval);
+            gameArea.innerHTML = ''; // Limpa a tela
+            
+            document.getElementById('game-screen').classList.remove('active');
+            document.getElementById('end-screen').classList.add('active');
+            document.getElementById('final-score').innerText = score;
+
+            // Envia score
+            try {
+                await fetch(`${API_URL}/score`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: playerName, score: score })
+                });
+                loadLeaderboard();
+            } catch (e) {
+                console.error("Erro ao enviar score", e);
+                document.getElementById('leaderboard-list').innerHTML = "<li>Erro de conexão com o servidor.</li>";
+            }
+        }
+
+        async function loadLeaderboard() {
+            try {
+                const response = await fetch(`${API_URL}/leaderboard`);
+                const data = await response.json();
+                const list = document.getElementById('leaderboard-list');
+                list.innerHTML = '';
+                
+                data.forEach((entry, index) => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span><strong>#${index + 1}</strong> ${entry.value}</span> <span>${entry.score} pts</span>`;
+                    list.appendChild(li);
+                });
+            } catch (e) {
+                console.error("Erro ao carregar leaderboard", e);
+            }
+        }
+    </script>
+</body>
+</html>
